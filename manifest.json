@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "STOCKFISH",
+  "version": "4.1",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Analyze"
+  },
+  "permissions": ["activeTab", "scripting"],
+  "content_scripts": [
+    {
+      "matches": ["*://*.chess.com/*", "*://*.lichess.org/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["stockfish.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

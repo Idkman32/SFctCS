@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Satranç Analiz</title>
+    <style>
+        * { box-sizing: border-box; }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #202020;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', sans-serif;
+            /* Eklenti penceresinin boyutu */
+            width: 700px; 
+            height: 500px;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* --- SOL: TAHTA ALANI --- */
+        #board-area {
+            flex: 1; /* Alanın çoğunu kapla */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #2b2b2b;
+            padding: 10px;
+        }
+
+        .board-container {
+            width: 450px;
+            height: 450px;
+            position: relative;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+
+        #chessboard {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            width: 100%;
+            height: 100%;
+            border: 4px solid #4a4a4a;
+        }
+
+        /* --- SAĞ: PANEL --- */
+        #sidebar {
+            width: 250px;
+            background-color: #333;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            border-left: 1px solid #444;
+        }
+
+        h3 { margin: 0 0 10px 0; color: #ccc; border-bottom: 2px solid #555; padding-bottom: 5px; }
+
+        /* --- KARELER VE TAŞLAR --- */
+        .square {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 40px; /* Taş Boyutu */
+            cursor: pointer;
+        }
+        
+        .white-sq { background-color: #eeeed2; color: transparent; }
+        .black-sq { background-color: #769656; color: transparent; }
+
+        .piece-w { color: #fff; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.6)); }
+        .piece-b { color: #000; filter: drop-shadow(0 1px 1px rgba(255,255,255,0.4)); }
+
+        /* --- OK KATMANI (SVG) --- */
+        #arrow-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* --- INPUTLAR --- */
+        label { font-size: 0.85rem; font-weight: bold; color: #aaa; display: block; margin-bottom: 4px; }
+        
+        textarea {
+            width: 100%;
+            height: 60px;
+            background: #111;
+            border: 1px solid #555;
+            color: #fff;
+            padding: 5px;
+            border-radius: 4px;
+            resize: none;
+            font-size: 0.8rem;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            background: #111;
+            border: 2px solid #d32f2f; /* Kırmızı çerçeve */
+            color: #ff5252;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 1.2rem;
+            text-align: center;
+            font-weight: bold;
+            text-transform: lowercase;
+        }
+
+        .highlight-move { background-color: rgba(255, 255, 0, 0.5) !important; }
+
+    </style>
+</head>
+<body>
+
+    <div id="board-area">
+        <div class="board-container">
+            <div id="chessboard"></div>
+            <svg id="arrow-layer"></svg>
+        </div>
+    </div>
+
+    <div id="sidebar">
+        <h3>Analiz Paneli</h3>
+        
+        <div>
+            <label>FEN KODU:</label>
+            <textarea id="fenInput">rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1</textarea>
+        </div>
+
+        <div>
+            <label style="color: #ff5252;">HAMLE GİR (Örn: e2e4):</label>
+            <input type="text" id="bestMoveInput" placeholder="----" maxlength="5">
+        </div>
+
+        <div style="font-size: 0.8rem; color: #777; margin-top: auto;">
+            <p>Otomatik kaydeder.<br>Hamle yazınca ok çıkar.</p>
+        </div>
+    </div>
+
+    <script>
+        const boardEl = document.getElementById('chessboard');
+        const arrowLayer = document.getElementById('arrow-layer');
+        const fenInput = document.getElementById('fenInput');
+        const moveInput = document.getElementById('bestMoveInput');
+        
+        const piecesMap = {
+            'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚', 'p': '♟',
+            'R': '♖', 'N': '♘', 'B': '♗', 'Q': '♕', 'K': '♔', 'P': '♙'
+        };
+        const cols = ['a','b','c','d','e','f','g','h'];
+
+        // 1. Tahtayı Oluştur
+        function createBoard() {
+            boardEl.innerHTML = '';
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    let sq = document.createElement('div');
+                    sq.className = 'square ' + ((r + c) % 2 === 0 ? 'white-sq' : 'black-sq');
+                    let coord = cols[c] + (8 - r); 
+                    sq.setAttribute('id', 'sq-' + coord);
+                    boardEl.appendChild(sq);
+                }
+            }
+        }
+
+        // 2. FEN Çiz
+        function renderFEN(fen) {
+            document.querySelectorAll('.square').forEach(sq => {
+                sq.innerText = '';
+                sq.classList.remove('piece-w', 'piece-b', 'highlight-move');
+            });
+            arrowLayer.innerHTML = ''; 
+
+            let parts = fen.split(' ');
+            let rows = parts[0].split('/');
+            
+            rows.forEach((rowStr, r) => {
+                let c = 0;
+                for (let char of rowStr) {
+                    if (char >= '0' && char <= '9') {
+                        c += parseInt(char);
+                    } else {
+                        let coord = cols[c] + (8 - r);
+                        let sq = document.getElementById('sq-' + coord);
+                        if(sq) {
+                            sq.innerText = piecesMap[char];
+                            sq.classList.add('piece', char === char.toUpperCase() ? 'piece-w' : 'piece-b');
+                        }
+                        c++;
+                    }
+                }
+            });
+        }
+
+        // 3. Ok Çiz
+        function drawArrow(from, to) {
+            const sq1 = document.getElementById('sq-' + from);
+            const sq2 = document.getElementById('sq-' + to);
+            
+            if (!sq1 || !sq2) return;
+
+            sq1.classList.add('highlight-move');
+            sq2.classList.add('highlight-move');
+
+            const containerRect = document.querySelector('.board-container').getBoundingClientRect();
+            const r1 = sq1.getBoundingClientRect();
+            const r2 = sq2.getBoundingClientRect();
+
+            const x1 = r1.left + r1.width / 2 - containerRect.left;
+            const y1 = r1.top + r1.height / 2 - containerRect.top;
+            const x2 = r2.left + r2.width / 2 - containerRect.left;
+            const y2 = r2.top + r2.height / 2 - containerRect.top;
+
+            arrowLayer.innerHTML = `
+                <defs>
+                    <marker id="arrowhead" markerWidth="6" markerHeight="4" 
+                    refX="5" refY="2" orient="auto">
+                        <polygon points="0 0, 6 2, 0 4" fill="red" />
+                    </marker>
+                </defs>
+                <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" 
+                    stroke="red" stroke-width="8" 
+                    stroke-linecap="round" marker-end="url(#arrowhead)" opacity="0.8" />
+            `;
+        }
+
+        // Güncelleme
+        function updateView() {
+            let fen = fenInput.value;
+            let move = moveInput.value.trim();
+            
+            renderFEN(fen);
+
+            if (move.length >= 4) {
+                let from = move.substring(0, 2);
+                let to = move.substring(2, 4);
+                if(/^[a-h][1-8][a-h][1-8]/.test(move)) {
+                    setTimeout(() => drawArrow(from, to), 10); 
+                }
+            }
+        }
+
+        // Eventler
+        fenInput.addEventListener('input', updateView);
+        moveInput.addEventListener('input', updateView);
+
+        // Başlat
+        createBoard();
+        updateView();
+
+    </script>
+</body>
+</html>
